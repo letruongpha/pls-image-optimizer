@@ -4,8 +4,8 @@
  * Plugin URI:  https://phalesolution.com
  * Description: Công cụ nén ảnh hàng loạt (WebP/AVIF) và resize cho thư viện Media WordPress. Hoạt động độc lập.
  * Version:     1.0.0
- * Author:      PLS
- * Author URI:  https://pha.vn/
+ * Author:      Pha Le Solution
+ * Author URI:  https://phalesolution.com
  * License:     GPLv2 or later
  * Text Domain: pls-image-optimizer
  */
