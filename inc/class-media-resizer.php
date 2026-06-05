@@ -68,8 +68,9 @@ class PLS_Media_Resizer {
         // Create resized image
         $resized = imagecreatetruecolor($new_width, $new_height);
 
-        // Preserve transparency for PNG
-        if ($image_info['mime'] === 'image/png') {
+        // Preserve transparency for formats that support an alpha channel
+        // (PNG and WebP). Without this, transparent areas become solid black.
+        if ($image_info['mime'] === 'image/png' || $image_info['mime'] === 'image/webp') {
             imagealphablending($resized, false);
             imagesavealpha($resized, true);
             $transparent = imagecolorallocatealpha($resized, 0, 0, 0, 127);

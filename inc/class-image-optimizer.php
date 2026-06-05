@@ -298,24 +298,146 @@ if ( ! class_exists( 'PLS_Image_Optimizer' ) ) {
         }
 
         /**
-         * Replace old filenames in database
+         * Replace old filenames in database.
+         *
+         * post_content is plain HTML, so a bounded REPLACE() is safe there.
+         * postmeta frequently stores PHP-serialized arrays (Elementor, Divi,
+         * ACF, etc.) where the string length is encoded as s:N:"...". A raw
+         * REPLACE() that changes a string's length without updating N corrupts
+         * the serialized payload, so meta is rewritten through the WordPress
+         * API which re-serializes with the correct lengths.
+         *
+         * @param array $replacements old basename => new basename
          */
         private function replace_in_database( $replacements ) {
             global $wpdb;
 
             foreach ( $replacements as $old => $new ) {
-                // Update Posts Content
-                $wpdb->query( $wpdb->prepare(
-                    "UPDATE $wpdb->posts SET post_content = REPLACE(post_content, %s, %s) WHERE post_content LIKE %s",
-                    $old, $new, '%' . $wpdb->esc_like( $old ) . '%'
-                ));
+                // --- 1. post_content (plain HTML, no serialized data) ---
+                // Bound the match so "test.jpg" never matches inside
+                // "super-test.jpg": only replace when the filename is preceded
+                // by a path/quote boundary. We run one bounded REPLACE per
+                // boundary character that can legitimately precede a filename.
+                foreach ( [ '/', '"', "'" ] as $boundary ) {
+                    $wpdb->query( $wpdb->prepare(
+                        "UPDATE $wpdb->posts SET post_content = REPLACE(post_content, %s, %s) WHERE post_content LIKE %s",
+                        $boundary . $old,
+                        $boundary . $new,
+                        '%' . $wpdb->esc_like( $boundary . $old ) . '%'
+                    ) );
+                }
 
-                // Update Post Meta
-                $wpdb->query( $wpdb->prepare(
-                    "UPDATE $wpdb->postmeta SET meta_value = REPLACE(meta_value, %s, %s) WHERE meta_value LIKE %s",
-                    $old, $new, '%' . $wpdb->esc_like( $old ) . '%'
-                ));
+                // --- 2. postmeta (may contain serialized data) ---
+                $this->replace_in_postmeta_safe( $old, $new );
             }
+        }
+
+        /**
+         * Serialized-safe filename replacement in postmeta.
+         *
+         * Finds every meta row whose value contains the old filename, walks the
+         * (possibly serialized) value replacing whole-filename matches, and
+         * writes it back via update_post_meta() so WordPress re-serializes with
+         * correct string lengths.
+         *
+         * @param string $old old basename (e.g. image.jpg)
+         * @param string $new new basename (e.g. image.webp)
+         */
+        private function replace_in_postmeta_safe( $old, $new ) {
+            global $wpdb;
+
+            $rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT meta_id, post_id, meta_key, meta_value FROM $wpdb->postmeta WHERE meta_value LIKE %s",
+                '%' . $wpdb->esc_like( $old ) . '%'
+            ) );
+
+            if ( empty( $rows ) ) {
+                return;
+            }
+
+            foreach ( $rows as $row ) {
+                $value    = maybe_unserialize( $row->meta_value );
+                $replaced = $this->replace_filename_recursive( $value, $old, $new );
+
+                if ( null === $replaced ) {
+                    continue; // nothing actually changed
+                }
+
+                update_post_meta( $row->post_id, $row->meta_key, $replaced, $value );
+            }
+        }
+
+        /**
+         * Recursively replace a whole filename inside a value of any type.
+         *
+         * Only replaces when the filename appears with a path/quote/whitespace
+         * boundary (or as the entire string) so "test.jpg" is not matched
+         * inside "super-test.jpg".
+         *
+         * @param mixed  $value value to walk (string, array, object, scalar)
+         * @param string $old   old basename
+         * @param string $new   new basename
+         * @return mixed|null    rewritten value, or null if nothing changed
+         */
+        private function replace_filename_recursive( $value, $old, $new ) {
+            if ( is_string( $value ) ) {
+                $new_value = $this->replace_filename_in_string( $value, $old, $new );
+                return ( $new_value === $value ) ? null : $new_value;
+            }
+
+            if ( is_array( $value ) ) {
+                $changed = false;
+                foreach ( $value as $key => $item ) {
+                    $result = $this->replace_filename_recursive( $item, $old, $new );
+                    if ( null !== $result ) {
+                        $value[ $key ] = $result;
+                        $changed       = true;
+                    }
+                }
+                return $changed ? $value : null;
+            }
+
+            if ( is_object( $value ) ) {
+                $changed = false;
+                foreach ( get_object_vars( $value ) as $key => $item ) {
+                    $result = $this->replace_filename_recursive( $item, $old, $new );
+                    if ( null !== $result ) {
+                        $value->$key = $result;
+                        $changed     = true;
+                    }
+                }
+                return $changed ? $value : null;
+            }
+
+            return null; // int, float, bool, null — never a filename
+        }
+
+        /**
+         * Replace whole-filename occurrences inside a single string.
+         *
+         * Matches the filename when it is preceded by a boundary character
+         * (start-of-string, /, ", ', whitespace) so partial-name collisions
+         * such as "super-test.jpg" vs "test.jpg" are avoided.
+         *
+         * @param string $subject string to search
+         * @param string $old     old basename
+         * @param string $new     new basename
+         * @return string
+         */
+        private function replace_filename_in_string( $subject, $old, $new ) {
+            if ( false === strpos( $subject, $old ) ) {
+                return $subject;
+            }
+            // (^|[/"'\s]) captures the boundary char so we can put it back.
+            // A callback avoids interpreting $ / \ that may appear in $new.
+            $pattern = '#(^|[/"\'\s])' . preg_quote( $old, '#' ) . '#';
+            return preg_replace_callback(
+                $pattern,
+                static function ( $m ) use ( $new ) {
+                    return $m[1] . $new;
+                },
+                $subject
+            );
         }
     }
 }

@@ -48,6 +48,12 @@ class PLS_Image_Converter {
             }
         } elseif ( 'webp' === $ext && function_exists( 'imagecreatefromwebp' ) ) {
             $img = @imagecreatefromwebp( $path );
+            if ( $img ) {
+                // WebP can carry an alpha channel; preserve it so transparent
+                // areas are not flattened to black when re-encoding.
+                imagealphablending( $img, true );
+                imagesavealpha( $img, true );
+            }
         } else {
             return false;
         }

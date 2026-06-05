@@ -28,7 +28,7 @@ jQuery(document).ready(function($) {
         // Update Stats UI
         function updateStats(total, current) {
             var percent = total > 0 ? Math.round((current / total) * 100) : 0;
-            $('.pls-progress-fill').css('width', percent + '%').text(percent + '%'); // Fixed selector
+            $('.pls-progress-fill').css('width', percent + '%').text(percent + '%');
         }
 
         // Scan/Load Function
@@ -39,15 +39,10 @@ jQuery(document).ready(function($) {
             var $btn = $('#pls-scan-images');
             var $list = $('#pls-image-list');
 
-            // Only show loading if it's a new scan or distinct action,
-            // but for pagination maybe just opacity?
             $list.css('opacity', 0.5);
-            $btn.addClass('disabled').text(t('scanning', 'Scanning...'));
+            $btn.addClass('disabled').html('<span class="spinner is-active" style="float:none; margin:0 5px 0 0; vertical-align:middle;"></span> ' + t('scanning', 'Scanning...'));
 
-            // If page 1, clear list? Yes.
-            // Actually, we replace list content every time now.
-
-            var filter = $('#pls-filter-status').val(); // Correct ID
+            var filter = $('#pls-filter-status').val();
             var filterAttached = $('#pls-filter-attached').val();
             var filterSize = $('#pls-filter-size').val();
 
@@ -77,12 +72,12 @@ jQuery(document).ready(function($) {
                         updatePaginationUI();
 
                         if (totalImages > 0) {
-                            $('.pls-list-controls').slideDown();
-                            $('.pls-pagination-wrapper').css('display', 'flex'); // Show pagination
+                            $('.pls-list-controls').slideDown(300);
+                            $('.pls-pagination-wrapper').css('display', 'flex');
                         } else {
-                            $('.pls-list-controls').slideUp();
+                            $('.pls-list-controls').slideUp(200);
                             $('.pls-pagination-wrapper').hide();
-                            $list.html('<div class="notice notice-info inline" style="margin:20px"><p>' + t('no_images_found', 'No images found.') + '</p></div>');
+                            $list.html('<div class="pls-empty-state"><span class="dashicons dashicons-images-alt2"></span><p>' + t('no_images_found', 'No images found.') + '</p></div>');
                         }
                     } else {
                         alert(tf('scan_failed_with_reason', 'Scan failed: %s', (res.data || t('unknown_error', 'Unknown error'))));
@@ -93,7 +88,7 @@ jQuery(document).ready(function($) {
                     alert(t('scan_request_failed', 'Scan request failed.'));
                 },
                 complete: function() {
-                    $btn.removeClass('disabled').text(t('scan_images', 'Scan Images'));
+                    $btn.removeClass('disabled').html('<span class="dashicons dashicons-search"></span> ' + t('scan_images', 'Scan Images'));
                     $list.css('opacity', 1);
                     isScanning = false;
                 }
@@ -197,17 +192,18 @@ jQuery(document).ready(function($) {
             if (queue.length === 0) return;
 
             var $btn = $('#pls-start-convert');
-            $btn.addClass('disabled').text(t('optimizing', 'Optimizing...'));
-            $('.pls-progress-bar').show();
+            $btn.addClass('disabled').html('<span class="spinner is-active" style="float:none; margin:0 5px 0 0; vertical-align:middle;"></span> ' + t('optimizing', 'Optimizing...'));
+            $('.pls-progress-bar').slideDown(200);
 
             isScanning = true;
             processedImages = 0;
             var processQueue = queue;
+            var targetFormat = $('#pls-target-format').val() || 'webp';
 
             function processNext() {
                 if (processedImages >= processQueue.length) {
                     isScanning = false;
-                    $btn.removeClass('disabled').text(t('start_optimization', 'Start Optimization'));
+                    $btn.removeClass('disabled').html('<span class="dashicons dashicons-performance"></span> ' + t('start_optimization', 'Start Optimization'));
                     $('#pls-completion-modal').css('display', 'flex');
                     return;
                 }
@@ -226,7 +222,7 @@ jQuery(document).ready(function($) {
                         nonce: pls_imgopt_vars.nonce,
                         id: img.id,
                         quality: $('#pls-webp-quality').val() || 80,
-                        format: $('#pls-target-format').val() || 'webp',
+                        format: targetFormat,
                         max_width: $('#pls-max-width').val() || 0
                     },
                     success: function(res) {
@@ -235,10 +231,13 @@ jQuery(document).ready(function($) {
 
                         if ($row.length) {
                             if (res.success) {
-                                $row.find('.status-col').html('<span class="pls-img-status-badge webp">' + t('status_done', 'Done') + '</span> <small style="color:green">' + res.data + '</small>');
+                                // Dynamically add correct badge class
+                                var badgeClass = (targetFormat === 'avif') ? 'avif' : 'webp';
+                                var badgeLabel = (targetFormat === 'avif') ? t('status_avif', 'AVIF') : t('status_webp', 'WebP');
+                                $row.find('.status-col').html('<span class="pls-img-status-badge ' + badgeClass + '">' + badgeLabel + '</span> <small style="color:#059669; font-weight: 600;">' + res.data + '</small>');
                                 $row.find('.pls-img-check input').prop('checked', false).prop('disabled', true);
                             } else {
-                                $row.find('.status-col').html('<span class="pls-img-status-badge" style="background:#fee; color:red">' + t('status_error', 'Error') + '</span>');
+                                $row.find('.status-col').html('<span class="pls-img-status-badge" style="background:#fef2f2; color:#ef4444; border: 1px solid rgba(239,68,68,0.2);">' + t('status_error', 'Error') + '</span>');
                                 console.error('Image ' + img.id + ' error:', res.data);
                             }
                         }
